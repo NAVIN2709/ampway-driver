@@ -32,7 +32,7 @@ const Login = () => {
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col justify-center items-center px-6">
-      <img src="/logo1.png" className="h-50 w-50" alt="Logo" />
+      <img src="/logo.png" className="h-50 w-50" alt="Logo" />
       <p className="text-gray-400 mb-10 text-sm text-center">
         Your fast lane around campus 🚕
       </p>

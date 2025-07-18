@@ -3,56 +3,128 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Geolocation } from '@capacitor/geolocation';
-import { Capacitor } from '@capacitor/core';
-import { PushNotifications } from '@capacitor/push-notifications';
 import { supabase } from '../../supabaseClient';
-
-const showNotification = (rider) => {
-  const title = 'New Rider Waiting';
-  const body = `Rider #${rider.id} is waiting nearby!`;
-
-  if (!Capacitor.isNativePlatform() && Notification.permission === 'granted') {
-    new Notification(title, { body });
-  }
-
-  if (Capacitor.isNativePlatform()) {
-    PushNotifications.createChannel({
-      id: 'rider-updates',
-      name: 'Rider Updates',
-      description: 'Notifications for new riders',
-      importance: 5,
-      visibility: 1,
-    });
-
-    PushNotifications.schedule({
-      notifications: [
-        {
-          title,
-          body,
-          id: Date.now(),
-          schedule: { at: new Date(Date.now() + 1000) },
-          channelId: 'rider-updates',
-          sound: 'default',
-        },
-      ],
-    });
-  }
-};
 
 const MapComponent = () => {
   const [userPosition, setUserPosition] = useState(null);
-  const [waitingRiders, setWaitingRiders] = useState([]);
+  const [cars, setCars] = useState([]);
+  const [riders, setRiders] = useState([]);
+  const [carId, setCarId] = useState(null);
 
+  const userIcon = new L.Icon({
+    iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+  });
+
+  const carIcon = new L.Icon({
+    iconUrl: 'https://cdn-icons-png.flaticon.com/512/744/744465.png',
+    iconSize: [35, 35],
+    iconAnchor: [17, 35],
+  });
+
+  const riderIcon = new L.Icon({
+    iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
+    iconSize: [30, 30],
+    iconAnchor: [15, 30],
+  });
+
+  // 🔐 Get user ID
   useEffect(() => {
-    // Request web browser notification permission
-    if (!Capacitor.isNativePlatform() && Notification.permission !== 'granted') {
-      Notification.requestPermission();
-    }
+    const fetchUser = async () => {
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
 
-    const fetchWaitingRiders = async () => {
+      if (error || !session?.user?.id) {
+        console.error('Error getting user session:', error);
+        return;
+      }
+
+      setCarId(session.user.id);
+    };
+
+    fetchUser();
+  }, []);
+
+  // 📍 Update car location every 5s
+  useEffect(() => {
+    if (!carId) return;
+
+    const updateLocation = async () => {
+      try {
+        const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+        const { latitude, longitude } = pos.coords;
+
+        setUserPosition([latitude, longitude]);
+
+        const { error } = await supabase.from('cars').upsert({
+          id: carId,
+          latitude,
+          longitude,
+        });
+
+        if (error) console.error('Error updating location:', error);
+      } catch (err) {
+        console.error('Geolocation error:', err);
+      }
+    };
+
+    updateLocation();
+    const interval = setInterval(updateLocation, 5000);
+
+    return () => clearInterval(interval);
+  }, [carId]);
+
+  // 🚗 Fetch cars
+  useEffect(() => {
+    const fetchCars = async () => {
+      const { data, error } = await supabase
+        .from('cars')
+        .select('id, car_name, latitude, longitude');
+
+      if (error) {
+        console.error('Error fetching cars:', error);
+        return;
+      }
+
+      const validCars = data
+        .filter((car) => car.latitude && car.longitude)
+        .map((car) => ({
+          id: car.id,
+          name: car.car_name,
+          location: {
+            latitude: car.latitude,
+            longitude: car.longitude,
+          },
+        }));
+
+      setCars(validCars);
+    };
+
+    fetchCars();
+
+    const channel = supabase
+      .channel('cars-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cars' },
+        () => fetchCars()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // 🧍‍♂️ Fetch riders with status 'waiting'
+  useEffect(() => {
+    const fetchRiders = async () => {
       const { data, error } = await supabase
         .from('riders')
-        .select('id, latitude, longitude')
+        .select('id, latitude, longitude, requested_at')
         .eq('status', 'waiting');
 
       if (error) {
@@ -60,50 +132,74 @@ const MapComponent = () => {
         return;
       }
 
-      // Compare new riders with existing ones to avoid duplicate notifications
-      const newRiders = data.filter(
-        (rider) => !waitingRiders.some((r) => r.id === rider.id)
-      );
+      const validRiders = data
+        .filter((r) => r.latitude && r.longitude)
+        .map((r) => ({
+          id: r.id,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          requestedAt: r.requested_at,
+        }));
 
-      if (newRiders.length > 0) {
-        newRiders.forEach((rider) => showNotification(rider));
-      }
-
-      setWaitingRiders(data);
+      setRiders(validRiders);
     };
 
-    fetchWaitingRiders(); // Initial call
-    const interval = setInterval(fetchWaitingRiders, 10000); // Every 10s
+    fetchRiders();
 
-    return () => clearInterval(interval); // Clean up on unmount
-  }, [waitingRiders]);
+    const channel = supabase
+      .channel('riders-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'riders', filter: 'status=eq.waiting' },
+        () => fetchRiders()
+      )
+      .subscribe();
 
-  useEffect(() => {
-    const getCurrentPosition = async () => {
-      const position = await Geolocation.getCurrentPosition();
-      setUserPosition([position.coords.latitude, position.coords.longitude]);
+    return () => {
+      supabase.removeChannel(channel);
     };
-
-    getCurrentPosition();
   }, []);
 
   return (
-    <MapContainer center={[10.7905, 78.7047]} zoom={15} style={{ height: '100vh', width: '100%' }}>
-      <TileLayer
-        attribution='&copy; OpenStreetMap contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      {userPosition && (
-        <Marker position={userPosition}>
-          <Popup>Your Location</Popup>
-        </Marker>
+    <div className="w-full h-[calc(100vh)] overflow-hidden">
+      {userPosition ? (
+        <MapContainer
+          center={userPosition}
+          zoom={17}
+          scrollWheelZoom={true}
+          className="w-full h-full"
+        >
+          <TileLayer
+            attribution="&copy; OpenStreetMap contributors"
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+
+          {/* Car Markers */}
+          {cars.map((car) => (
+            <Marker
+              key={car.id}
+              position={[car.location.latitude, car.location.longitude]}
+              icon={carIcon}
+            >
+              <Popup>🚗 <strong>{car.name || 'Electric Taxi'}</strong></Popup>
+            </Marker>
+          ))}
+
+          {/* Rider Markers */}
+          {riders.map((rider) => (
+            <Marker
+              key={rider.id}
+              position={[rider.latitude, rider.longitude]}
+              icon={riderIcon}
+            >
+              <Popup>🧍 Rider waiting since {new Date(rider.requestedAt).toLocaleTimeString()}</Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+      ) : (
+        <div className="text-white text-center mt-10">Getting your location...</div>
       )}
-      {waitingRiders.map((rider) => (
-        <Marker key={rider.id} position={[rider.latitude, rider.longitude]}>
-          <Popup>Rider #{rider.id} is waiting</Popup>
-        </Marker>
-      ))}
-    </MapContainer>
+    </div>
   );
 };
 

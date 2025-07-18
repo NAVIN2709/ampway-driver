@@ -1,14 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
-import usePushNotifications from './hooks/usePushNotifications';
 
 import Home from './pages/Home';
 import Login from './pages/Login';
 
 const App = () => {
   const [user, setUser] = useState(undefined); // undefined = loading
-  usePushNotifications(); 
 
   useEffect(() => {
     // Initial user fetch

@@ -127,10 +127,6 @@ const MapComponent = () => {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
-          <Marker position={userPosition} icon={userIcon}>
-            <Popup>You are here 🚶</Popup>
-          </Marker>
-
           {cars.map((car) => (
             <Marker
               key={car.id}

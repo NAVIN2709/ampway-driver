@@ -1,67 +1,94 @@
-import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import { Geolocation } from '@capacitor/geolocation';
-import { supabase } from '../../supabaseClient';
+import React, { useEffect, useState, useRef } from "react";
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { Geolocation } from "@capacitor/geolocation";
+import { supabase } from "../../supabaseClient";
 
 const MapComponent = () => {
-  const [userPosition, setUserPosition] = useState(null);
-  const [cars, setCars] = useState([]);
-  const [riders, setRiders] = useState([]);
+  const [userPosition, setUserPosition] = useState([10.7598, 78.8136]);
   const [carId, setCarId] = useState(null);
+  const [riders, setRiders] = useState([]);
+  const mapRef = useRef(null);
 
-  const carIcon = new L.Icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/744/744465.png',
-    iconSize: [35, 35],
-    iconAnchor: [17, 35],
-  });
-
-  const riderIcon = new L.Icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
-    iconSize: [30, 30],
-    iconAnchor: [15, 30],
-  });
-
-  // 🔐 Get user ID
+  // Get current user ID
   useEffect(() => {
     const fetchUser = async () => {
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession();
-
-      if (error || !session?.user?.id) {
-        console.error('Error getting user session:', error);
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data?.user?.id) {
+        console.error("Error getting user session:", error);
         return;
       }
-
-      setCarId(session.user.id);
+      setCarId(data.user.id);
     };
 
     fetchUser();
   }, []);
 
-  // 📍 Update car location every 5s
+  // Fetch riders data
+  useEffect(() => {
+    if (!carId) return;
+
+    const fetchRiders = async () => {
+      const { data, error } = await supabase
+        .from('riders')
+        .select('*')
+        .order('requested_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching riders:', error);
+        return;
+      }
+      setRiders(data);
+    };
+
+    fetchRiders();
+    const interval = setInterval(fetchRiders, 10000); // Update every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [carId]);
+
+  // Update location every 5 seconds
   useEffect(() => {
     if (!carId) return;
 
     const updateLocation = async () => {
       try {
-        const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
-        const { latitude, longitude } = pos.coords;
-
-        setUserPosition([latitude, longitude]);
-
-        const { error } = await supabase.from('cars').upsert({
-          id: carId,
-          latitude,
-          longitude,
+        const pos = await Geolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+        }).catch(async () => {
+          return await Geolocation.getCurrentPosition();
         });
 
-        if (error) console.error('Error updating location:', error);
+        const { latitude, longitude } = pos.coords;
+        
+        setUserPosition(prev => {
+          if (!prev || 
+              Math.abs(prev[0] - latitude) > 0.0001 || 
+              Math.abs(prev[1] - longitude) > 0.0001) {
+            return [latitude, longitude];
+          }
+          return prev;
+        });
+
+        const { error } = await supabase
+          .from("cars")
+          .update({
+            latitude,
+            longitude,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("user_id", carId);
+
+        if (error) {
+          console.error("Error updating location:", error);
+        }
+
+        if (mapRef.current) {
+          mapRef.current.setView([latitude, longitude]);
+        }
       } catch (err) {
-        console.error('Geolocation error:', err);
+        console.error("Geolocation error:", err);
       }
     };
 
@@ -71,128 +98,56 @@ const MapComponent = () => {
     return () => clearInterval(interval);
   }, [carId]);
 
-  // 🚗 Fetch cars
-  useEffect(() => {
-    const fetchCars = async () => {
-      const { data, error } = await supabase
-        .from('cars')
-        .select('id,latitude, longitude,user_id');
+  const carIcon = L.icon({
+    iconUrl: "https://cdn-icons-png.flaticon.com/512/854/854894.png",
+    iconSize: [32, 32],
+  });
 
-      if (error) {
-        console.error('Error fetching cars:', error);
-        return;
-      }
-
-      const validCars = data
-        .filter((car) => car.latitude && car.longitude)
-        .map((car) => ({
-          id: car.id,
-          location: {
-            latitude: car.latitude,
-            longitude: car.longitude,
-          },
-          userId: car.user_id
-        }));
-
-      setCars(validCars);
-    };
-
-    fetchCars();
-
-    const channel = supabase
-      .channel('cars-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'cars' },
-        () => fetchCars()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  // 🧍‍♂️ Fetch riders with status 'waiting'
-  useEffect(() => {
-    const fetchRiders = async () => {
-      const { data, error } = await supabase
-        .from('riders')
-        .select('id, latitude, longitude, requested_at')
-        .eq('status', 'waiting');
-
-      if (error) {
-        console.error('Error fetching riders:', error);
-        return;
-      }
-
-      const validRiders = data
-        .filter((r) => r.latitude && r.longitude)
-        .map((r) => ({
-          id: r.id,
-          latitude: r.latitude,
-          longitude: r.longitude,
-          requestedAt: r.requested_at,
-        }));
-
-      setRiders(validRiders);
-    };
-
-    fetchRiders();
-
-    const channel = supabase
-      .channel('riders-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'riders', filter: 'status=eq.waiting' },
-        () => fetchRiders()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+  const riderIcon = L.icon({
+    iconUrl: "https://cdn-icons-png.flaticon.com/512/3132/3132693.png",
+    iconSize: [32, 32],
+  });
 
   return (
-    <div className="w-full h-[calc(100vh)] overflow-hidden">
-      {userPosition ? (
-        <MapContainer
-          center={userPosition}
-          zoom={17}
-          scrollWheelZoom={true}
-          className="w-full h-full"
-        >
-          <TileLayer
-            attribution="&copy; OpenStreetMap contributors"
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-
-          {/* Car Markers */}
-          {cars.map((car) => (
-            <Marker
-              key={car.id}
-              position={[car.location.latitude, car.location.longitude]}
-              icon={carIcon}
-            >
-              <Popup>🚗 <strong>{'Electric Taxi'}</strong></Popup>
-            </Marker>
-          ))}
-
-          {/* Rider Markers */}
-          {riders.map((rider) => (
-            <Marker
-              key={rider.id}
-              position={[rider.latitude, rider.longitude]}
+    <div className="h-screen w-full">
+      <MapContainer
+        center={userPosition}
+        zoom={15}
+        style={{ height: "100%", width: "100%" }}
+        whenCreated={(map) => {
+          mapRef.current = map;
+        }}
+        key={JSON.stringify(userPosition)}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        
+        {/* Car Marker */}
+        <Marker position={userPosition} icon={carIcon}>
+          <Popup>Your Current Location</Popup>
+        </Marker>
+        
+        {/* Rider Markers */}
+        {riders.map((rider) => (
+          rider.latitude && rider.longitude && (
+            <Marker 
+              key={rider.id} 
+              position={[rider.latitude, rider.longitude]} 
               icon={riderIcon}
             >
-              <Popup>🧍 Rider waiting since {new Date(rider.requestedAt).toLocaleTimeString()}</Popup>
+              <Popup>
+                <div>
+                  <strong>Rider Request</strong>
+                  <p>Status: {rider.status}</p>
+                  <p>Requested at: {new Date(rider.requested_at).toLocaleString()}</p>
+                </div>
+              </Popup>
             </Marker>
-          ))}
-        </MapContainer>
-      ) : (
-        <div className="text-white text-center mt-10">Getting your location...</div>
-      )}
+          )
+        ))}
+      </MapContainer>
     </div>
   );
 };

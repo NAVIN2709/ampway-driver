@@ -11,12 +11,6 @@ const MapComponent = () => {
   const [riders, setRiders] = useState([]);
   const [carId, setCarId] = useState(null);
 
-  const userIcon = new L.Icon({
-    iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-  });
-
   const carIcon = new L.Icon({
     iconUrl: 'https://cdn-icons-png.flaticon.com/512/744/744465.png',
     iconSize: [35, 35],
@@ -82,7 +76,7 @@ const MapComponent = () => {
     const fetchCars = async () => {
       const { data, error } = await supabase
         .from('cars')
-        .select('id, car_name, latitude, longitude');
+        .select('id,latitude, longitude,user_id');
 
       if (error) {
         console.error('Error fetching cars:', error);
@@ -93,11 +87,11 @@ const MapComponent = () => {
         .filter((car) => car.latitude && car.longitude)
         .map((car) => ({
           id: car.id,
-          name: car.car_name,
           location: {
             latitude: car.latitude,
             longitude: car.longitude,
           },
+          userId: car.user_id
         }));
 
       setCars(validCars);
@@ -181,7 +175,7 @@ const MapComponent = () => {
               position={[car.location.latitude, car.location.longitude]}
               icon={carIcon}
             >
-              <Popup>🚗 <strong>{car.name || 'Electric Taxi'}</strong></Popup>
+              <Popup>🚗 <strong>{'Electric Taxi'}</strong></Popup>
             </Marker>
           ))}
 

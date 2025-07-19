@@ -1,12 +1,37 @@
-# React + Vite
+# 🚕⚡ AmpWay Driver App – Real-time Buggy Location & Ride Management
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This is the **driver-side companion app** for the NITT's OLA ride platform for electric buggies. The Driver App allows buggy drivers to:
 
-Currently, two official plugins are available:
+- 🔔 Receive student ride requests in real time  
+- ✅ Accept or reject rides  
+- 📍 Share live GPS location using CapacitorJS  
+- 📄 View their daily rides and request history  
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+---
 
-## Expanding the ESLint configuration
+## 📦 Tech Stack
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+| Purpose            | Tech                          |
+|--------------------|-------------------------------|
+| UI Framework       | React.js                      |
+| Native Bridge      | CapacitorJS                   |
+| Location Services  | Capacitor Geolocation API     |
+| Backend + DB       | Supabase (PostgreSQL + Auth)  |
+| Realtime Updates   | Supabase Realtime (Channels)  |
+| Hosting            | Vercel                        |
+
+---
+
+## 🧭 Features
+
+### 🧑‍✈️ For Drivers:
+- 📍 Share real-time location with students
+- 🔔 See incoming ride requests instantly
+- ✅ Accept/Reject ride requests
+- 🧾 View current + past accepted rides
+- 🌐 Works as a **PWA** and **Android App** via Capacitor build
+
+---
+
+## 🗂️ Folder Structure
+
